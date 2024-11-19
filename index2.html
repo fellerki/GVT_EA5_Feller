@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/style.css">
+  <title>GVT - EA5 - Kim Feller</title>
+</head>
+<h1>EA5 - Kamerabewegung - Teil 2</h1>
+<h2>Graphical Visualisation Technologies</h2>
+<p>Kim Lara Feller, Technische Hochschule Lübeck, Matrikelnummer 331177</p>
+<p><b>Hinweise und Referenzen</b></p>
+<p>Mit Hilfe der untenstehenden Button kann das rekursive Kugel-Modell bedient werden, indem die Rekursionstiefe
+erhöht oder minimiert wird. Außerdem kann zwischen der Ansicht von Linien und Flächen gewechselt werden.</p>
+
+<a href="index.html">Teil 1 der Aufgabe</a>
+
+<body>
+<canvas id="glCanvas" width="800" height="600"></canvas>
+<div id="controls">
+  <button id="increase">Rekursionstiefe +</button>
+  <button id="decrease">Rekursionstiefe -</button>
+  <button id="toggle">Wechsel zwischen Linien und Flächen</button>
+</div>
+<script>
+  const canvas = document.getElementById("glCanvas");
+  const gl = canvas.getContext("webgl");
+
+  if (!gl) {
+    alert("WebGL wird nicht unterstützt.");
+    throw "WebGL nicht verfügbar.";
+  }
+
+  //Variablen für Steuerung
+  let recursionDepth = 0;
+  let isWireframe = false; // Darstellung als Linienmodell (true) oder Flächen (false)
+
+  const vertexShaderSource = `
+        attribute vec3 aPosition;
+        attribute vec3 aColor;
+        varying vec3 vColor;
+        void main() {
+            vColor = aColor;
+            gl_Position = vec4(aPosition, 1.0);
+        }`;
+
+  const fragmentShaderSource = `
+        precision mediump float;
+        varying vec3 vColor;
+        void main() {
+            gl_FragColor = vec4(vColor, 1.0);
+        }`;
+
+  function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error("Shader Fehler:", gl.getShaderInfoLog(shader));
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  }
+
+  const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
+  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error("Programm Fehler:", gl.getProgramInfoLog(program));
+  }
+  gl.useProgram(program);
+
+  const aPosition = gl.getAttribLocation(program, "aPosition");
+  const aColor = gl.getAttribLocation(program, "aColor");
+
+  // Unterteilung eines Dreiecks für die Rekursion
+  function subdivideTriangle(v1, v2, v3, depth, vertices, colors) {
+    if (depth === 0) {
+      vertices.push(...v1, ...v2, ...v3);
+      const color = [Math.random(), Math.random(), Math.random()]; // random Farben :)
+      colors.push(...color, ...color, ...color);
+      return;
+    }
+
+    //Mittelpunkte der Dreiecksseiten berechnen
+    const mid1 = normalize(mix(v1, v2, 0.5));
+    const mid2 = normalize(mix(v2, v3, 0.5));
+    const mid3 = normalize(mix(v3, v1, 0.5));
+
+    //Rekursive Unterteilung
+    subdivideTriangle(v1, mid1, mid3, depth - 1, vertices, colors);
+    subdivideTriangle(mid1, v2, mid2, depth - 1, vertices, colors);
+    subdivideTriangle(mid1, mid2, mid3, depth - 1, vertices, colors);
+    subdivideTriangle(mid3, mid2, v3, depth - 1, vertices, colors);
+  }
+
+  function normalize(v) {
+    const len = Math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2);
+    return [v[0] / len, v[1] / len, v[2] / len];
+  }
+
+  function mix(v1, v2, t) {
+    return [
+      v1[0] * (1 - t) + v2[0] * t,
+      v1[1] * (1 - t) + v2[1] * t,
+      v1[2] * (1 - t) + v2[2] * t,
+    ];
+  }
+
+  // Kugel erstellen basierend auf Rekursionstiefe
+  function createSphere(depth) {
+    const vertices = [];
+    const colors = [];
+    const sqrt2 = Math.sqrt(2) / 2;
+
+    const points = [
+      [0, 0, 1], [0, 0, -1],
+      [1, 0, 0], [-1, 0, 0],
+      [0, 1, 0], [0, -1, 0]
+    ];
+
+    const faces = [
+      [points[0], points[4], points[2]],
+      [points[0], points[2], points[5]],
+      [points[0], points[5], points[3]],
+      [points[0], points[3], points[4]],
+      [points[1], points[4], points[3]],
+      [points[1], points[3], points[5]],
+      [points[1], points[5], points[2]],
+      [points[1], points[2], points[4]],
+    ];
+
+    for (const face of faces) {
+      subdivideTriangle(...face, depth, vertices, colors);
+    }
+
+    return { vertices: new Float32Array(vertices), colors: new Float32Array(colors) };
+  }
+
+  function render() {
+    const { vertices, colors } = createSphere(recursionDepth);
+
+    const vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(aPosition);
+
+    const colorBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(aColor);
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if (isWireframe) {
+      for (let i = 0; i < vertices.length / 3; i += 3) {
+        gl.drawArrays(gl.LINE_LOOP, i, 3); // Linienmodell
+      }
+    } else {
+      gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 3); // Flächenmodell
+    }
+  }
+
+  document.getElementById("increase").addEventListener("click", () => {
+    recursionDepth = Math.min(recursionDepth + 1, 6);
+    render();
+  });
+
+  document.getElementById("decrease").addEventListener("click", () => {
+    recursionDepth = Math.max(recursionDepth - 1, 0);
+    render();
+  });
+
+  document.getElementById("toggle").addEventListener("click", () => {
+    isWireframe = !isWireframe;
+    render();
+  });
+
+  gl.clearColor(1, 1, 1, 1);
+  render();
+</script>
+</body>
+</html>
